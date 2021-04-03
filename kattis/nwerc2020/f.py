@@ -3,6 +3,21 @@ from heapq import heappush, heappop
 read = lambda f=int: map(f, sys.stdin.readline().split())
 array = lambda *ds: [array(*ds[1:]) for _ in range(ds[0])] if ds else 0
 
+class Frac:
+    def __init__(self, a, b):
+        if b < 0:
+            self.a = -a
+            self.b = -b
+        else:
+            self.a = a
+            self.b = b
+
+    def __le__(self, other):
+        return self.a * other.b <= other.a * self.b
+
+    def __lt__(self, other):
+        return self.a * other.b < other.a * self.b
+
 N, = read()
 xvs = []
 for _ in range(N):
@@ -17,8 +32,8 @@ def add(i, j):
     x2, v2 = xvs[j]
     if v1 == v2:
         return
-    t = (x2 - x1) / (v1 - v2)
-    if t <= 0:
+    t = Frac(x2 - x1, v1 - v2)
+    if t <= Frac(0, 1):
         return
     #print('adding', t, i, j)
     heappush(crashes, (t, i, j))
