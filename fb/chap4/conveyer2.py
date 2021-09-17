@@ -1,5 +1,9 @@
 from typing import List
 
+# You solved 7 / 19 test cases.
+# Time Limit Exceeded on 7 test cases
+# Wrong Answer on 5 test cases
+
 def getMinExpectedHorizontalTravelDistance(
         N: int, H: List[int], A: List[int], B: List[int]) -> float:
     W = 1_000_000 # Width of space
