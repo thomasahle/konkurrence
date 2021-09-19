@@ -10,28 +10,11 @@ def getMinExpectedHorizontalTravelDistance(
     roots, G = make_graph(W, H, A, B)
     pss, prices = push_down(G, roots, A, B)
 
-    # for i in range(N+1):
-    #     if i == N:
-    #         print(f'bottom')
-    #     else:
-    #         print(f'{i}: {A[i]}-{B[i]} at H={H[i]}')
-    #     for p, w in pss[i]:
-    #         print(f'{p=}, {w/W=}')
-    # print('Total bottom prob:', sum(w for _,w in pss[-1])/W)
+    # print_graph(G, A, B, H)
 
-    # expectation = 0
-    # for i, ps in enumerate(pss):
-    #     a, b = A[i], B[i]
-    #     left = sum((p-a)*w for p, w in ps)
-    #     right = sum((b-p)*w for p, w in ps)
-    #     expectation += (left + right)/2
-    # That could be made much easier, ignoring all the positions.
     expectation = 0
     for i, ps in enumerate(pss[:-1]):
         expectation += (B[i]-A[i])/2 * sum(w for _, w in ps)
-
-    #print('All random cost:', expectation/W)
-    #print(prices)
 
     # We can always do at least as well as random (MOCP)
     best = expectation
@@ -62,7 +45,7 @@ def getMinExpectedHorizontalTravelDistance(
 
 def topsort(G):
     in_graph = [[] for _ in G]
-    for i, ((i1, _), (i2, p)) in enumerate(G):
+    for i, ((i1, _), (i2, p)) in enumerate(G[:-1]):
         in_graph[i1].append(i)
         in_graph[i2].append(i)
 
@@ -80,16 +63,16 @@ def topsort(G):
     return res
 
 def push_down(G, roots, A, B):
+    order = topsort(G)
+
     # All incoming positions and their probabilities when
     # conveyer belts are chosen at random.
     pss = [[] for _ in G]
     # Start by adding roots
     for (i, p, w) in roots:
         pss[i].append((p, w))
-
     # Go through graph in topological order,
     # ignore the bottom.
-    order = topsort(G)
     for i in order[:0:-1]:
         W = sum(w for _, w in pss[i])
         (i1, p1), (i2, p2) = G[i]
@@ -116,31 +99,30 @@ def make_graph(W, H, A, B):
     # (excluding its endpoints), then it will be transported
     # to its left or right end
     START, END = 1, 0
-    events = [(a, START, i) for i, a in enumerate(A)]
-    events += [(b, END, i) for i, b in enumerate(B)]
+    events = [(a, START, -H[i], i) for i, a in enumerate(A)]
+    events += [(b, END, H[i], i) for i, b in enumerate(B)]
     events.sort()
 
-    #fw = SegmentTree(2**20) # NOTE: must be larger than the max height
-    fw = SegmentTreeBrute()
-    G = [([0, 0], [0, 0]) for _ in range(len(H)+1)]
+    fw = KeyedSegmentTree(2**20) # NOTE: must be larger than the max height
+    MH = 10**6 # Add this value to all height to make them positive before putting in tree
+    #fw = SegmentTreeBrute()
+    G = [[(None, 0), (None, 0)] for _ in range(len(H)+1)]
     roots = []
     top_envelope_start = 0
     top_envelope_i = len(H)
-    fw.add(len(H), 0) # Add the bottom
-    for p, typ, i in events:
+    fw.add(len(H), MH+0) # Add the bottom
+    #to_add = [] # Starts we haven't added yet to prevent accidential catching
+    for p, typ, _, i in events:
         if typ == START:
-            #fw.add(H[i], i)
-            G[i][0][0] = fw.next(-H[i])
-            G[i][0][1] = p
-            fw.add(i, -H[i])
+            G[i][0] = (fw.next(MH-H[i]), p)
+            fw.add(i, MH-H[i])
             # if i is the top it covers something else and starts a new root
             if fw.top() == i:
                 roots.append((top_envelope_i, (top_envelope_start+p)/2, p-top_envelope_start))
                 top_envelope_i = i
                 top_envelope_start = p
         if typ == END:
-            G[i][1][0] = fw.next(-H[i])
-            G[i][1][1] = p
+            G[i][1] = (fw.next(MH-H[i]), p)
             fw.remove(i)
             if top_envelope_i == i:
                 roots.append((i, (top_envelope_start+p)/2, p-top_envelope_start))
@@ -149,6 +131,23 @@ def make_graph(W, H, A, B):
     assert top_envelope_i == len(H)
     roots.append((len(H), (top_envelope_start+W)/2, W-top_envelope_start))
     return roots, G
+
+def print_graph(G, A, B, H):
+    # For debugging the make_graph
+
+    from graphviz import Digraph
+
+    dot = Digraph()
+    for i, ((i1, _), (i2, _)) in enumerate(G):
+        if i == len(G)-1:
+            dot.node(str(i), 'bot')
+        else:
+            dot.node(str(i), f'{H[i]}: {A[i]}-{B[i]}' if i != len(G)-1 else 'bot')
+            dot.edge(str(i), str(i1))
+            dot.edge(str(i), str(i2))
+
+    dot.render(view=True)
+
 
 
 class SegmentTreeBrute:
@@ -162,17 +161,160 @@ class SegmentTreeBrute:
         v0, k = min((v0, k) for k, v0 in self.data.items() if v0 > v)
         return k
     def top(self):
-        return self.next(-10**9)
+        v0, k = min((v0, k) for k, v0 in self.data.items())
+        return k
+
+################################################################################
+# The following recursive tree uses way too much memory unfortunately.
+################################################################################
+
+class Branch:
+    def __init__(self, left, right):
+        self.left = left
+        self.right = right
+        self.size = left.size + right.size
+        self.update()
+
+    def set(self, i, v):
+        left, right = self.left, self.right
+        if i < left.size:
+            left.set(i, v)
+        else:
+            right.set(i-left.size, v)
+        self.update()
+
+    def update(self):
+        left, right = self.left, self.right
+        if left.last is None and right.last is None:
+            self.last = None
+        elif right.last is not None:
+            self.last = right.last + left.size
+        else:
+            self.last = left.last
+
+    def succ(self, i):
+        left, right = self.left, self.right
+        if left.last is not None and left.last > i:
+            return left.succ(i)
+        #assert right.last is not None and right.last > i-left.size, f'{right.last=}, {i=}, {left.size=}'
+        return right.succ(i - left.size) + left.size
+
+class Leaf:
+    def __init__(self):
+        self.size = 1
+        self.last = None
+
+    def set(self, i, v):
+        assert i == 0
+        self.last = 0 if v > 0 else None
+
+    def succ(self, i):
+        assert i < 0 and self.last is not None
+        return 0
+
+def Tree(size):
+    h = size.bit_length()
+    assert size == 1 << h-1, 'Size must be power of 2'
+
+    if size == 1:
+        return Leaf()
+    return Branch(Tree(size//2), Tree(size//2))
+
+class RecursiveTree:
+    def __init__(self, size):
+        self.t = Tree(size)
+        self.v2k = {}
+        self.k2v = {}
+    def add(self, k, v):
+        #print('Adding', v)
+        self.t.set(v, 1)
+        #print('New last', self.t.last)
+        self.v2k[v] = k
+        self.k2v[k] = v
+    def remove(self, k):
+        v = self.k2v.pop(k)
+        del self.v2k[v]
+        #print('Removing', v)
+        self.t.set(v, 0)
+    def next(self, v):
+        #print('Getting successor for', v)
+        v1 = self.t.succ(v)
+        #print('Found', v1)
+        return self.v2k[v1]
+    def top(self):
+        return self.next(-1)
 
 
+################################################################################
+# Let's try a real Segment tree
+################################################################################
 
 class SegmentTree:
-    def __init_(self, size):
-        h = size.bit_length
+    def __init__(self, size):
+        h = size.bit_length()
         assert size == 1 << h-1, 'Size must be power of 2'
+        self.h = h
+        self.last = [-1] * (1 << h)
+        # Recall, children of i are 2i+1 and 2i+2
+        # The parent of i is (i-1) >> 1
+        # That makes the parent of 0 = (-1)>>1 = -1
+        # Three tree at i has size 2**(h - (i+1).bit_length())
+
+    def set(self, i, v):
+        p = (1 << self.h-1) - 1 + i
+        self.last[p] = 0 if v != 0 else -1
+        p = (p-1) >> 1
+        while p != -1:
+            l, r = self.last[2*p+1], self.last[2*p+2]
+            if l == -1 and r == -1:
+                self.last[p] = -1
+            elif r != -1:
+                left_size = 1 << (self.h - (2*p+2).bit_length())
+                self.last[p] = r + left_size
+            else:
+                self.last[p] = l
+            p = (p-1) >> 1
+
+    def succ(self, i):
+        p = 0
+        res = 0
+        for _ in range(self.h-1):
+            l, r = self.last[2*p+1], self.last[2*p+2]
+            if l != -1 and l > i:
+                p = 2*p+1
+            else:
+                left_size = 1 << (self.h - (2*p+2).bit_length())
+                i -= left_size
+                res += left_size
+                p = 2*p+2
+        return res
+
+class KeyedSegmentTree:
+    def __init__(self, size):
+        self.t = SegmentTree(size)
+        self.v2k = {}
+        self.k2v = {}
+    def add(self, k, v):
+        #print('Adding', v)
+        self.t.set(v, 1)
+        #print('New last', self.t.last[0])
+        self.v2k[v] = k
+        self.k2v[k] = v
+    def remove(self, k):
+        v = self.k2v.pop(k)
+        del self.v2k[v]
+        #print('Removing', v)
+        self.t.set(v, 0)
     def next(self, v):
-        # Return first k,v' with v' > v
-        return first
+        #print('Getting successor for', v)
+        v1 = self.t.succ(v)
+        #print('Found', v1)
+        return self.v2k[v1]
+    def top(self):
+        return self.next(-1)
+
+
+
 
 
 
